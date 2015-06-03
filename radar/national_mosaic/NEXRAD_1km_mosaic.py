@@ -10,6 +10,9 @@ from mpl_toolkits.basemap import Basemap
 from pydap.client import open_url
 from siphon.tds import TDSCatalog
 
+# Adapted from the example at:
+# https://github.com/lesserwhirls/siphon/tree/master/examples/notebooks/radar
+
 def radar_colormap():
     nws_reflectivity_colors = [
     #"#646464", # ND
