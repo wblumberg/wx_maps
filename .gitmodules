@@ -1,0 +1,3 @@
+[submodule "ua/spc_ua_maps"]
+	path = ua/spc_ua_maps
+	url = https://github.com/wblumberg/spc_ua_maps.git
