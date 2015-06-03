@@ -1,3 +1,6 @@
 [submodule "ua/spc_ua_maps"]
 	path = ua/spc_ua_maps
 	url = https://github.com/wblumberg/spc_ua_maps.git
+[submodule "radar/vad_plotting"]
+	path = radar/vad_plotting
+	url = https://github.com/wblumberg/vad_plotting.git
