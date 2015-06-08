@@ -1,14 +1,16 @@
 import numpy as np
 from netCDF4 import Dataset
+import matplotlib as mpl
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.mlab as mlab
-import matplotlib as mpl
 import os
 from pydap.client import open_url
 from datetime import datetime, timedelta
 
-NPZPATH = 'npz/'
+prefix_path = os.path.dirname(os.path.abspath(__file__)) + '/'
+NPZPATH = prefix_path + 'npz/'
 
 def compute_theta(temp, pres):
     ''' Compute potential temperature '''
@@ -110,7 +112,7 @@ variable_to_plot = 'v-component_of_wind_tropopause'
 MS2KTS = 1.94384449
 lat_upper = 60
 lat_lower = 30
-LONLATS = "gfsHD.lonlats.npz"
+LONLATS = prefix_path + "gfsHD.lonlats.npz"
 MISSING = 9.99900026e+20
 CLON = 255.
 
@@ -228,6 +230,8 @@ plt.xlabel("Longitude")
 plt.colorbar(extend='both')
 plt.title("GFS 1 Degree Tropopause V-wind (m/s) \nAveraged between " + str(lat_upper) + " and " + str(lat_lower) + "$^{\circ}$N",fontsize=18)
 plt.tight_layout()
-plt.show()
+OUTDIR = '/data/soundings/http/blumberg/'
+
+plt.savefig(OUTDIR + 'dt_hov.png', bbox_inches='tight')
 
 

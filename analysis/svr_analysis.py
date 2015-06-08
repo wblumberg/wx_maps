@@ -6,10 +6,11 @@ import numpy as np
 import pytz
 import glob
 import os
-
+import scipy.ndimage
 from mpl_toolkits.basemap import Basemap
 from pydap.client import open_url
 from siphon.tds import TDSCatalog
+from netCDF4 import Dataset
 
 # Adapted from the example at:
 # https://github.com/lesserwhirls/siphon/tree/master/examples/notebooks/radar
@@ -49,29 +50,75 @@ def radar_colormap():
 
 max_no = 95
 
-path_to_imgs = '/data/soundings/http/blumberg/nexrad1km/imgs/'
-cur_imgs = np.sort(glob.glob(path_to_imgs + '*.png'))
-if 'radar_' + str(max_no) + '.png' in cur_imgs:
-    # remove the last image
-    os.system('/usr/bin/rm ' + path_to_imgs + 'radar_' + str(max_no) + '.png')
+path_to_imgs = '/data/soundings/http/blumberg/nexrad_rap/'
+#cur_imgs = np.sort(glob.glob(path_to_imgs + '*.png'))
+#if 'radar_' + str(max_no) + '.png' in cur_imgs:
+#    # remove the last image
+#    os.system('/usr/bin/rm ' + path_to_imgs + 'radar_' + str(max_no) + '.png')
 
 # update the names of all the other images
-for img in cur_imgs:
-    no = int(img.split('_')[1].split('.')[0])
-    old_path = path_to_imgs + 'radar_' + str(no) + '.png'
-    new_path = path_to_imgs + 'radar_' + str(no + 1) + '.png'
-    print old_path
-    print new_path
-    os.system('/usr/bin/mv ' + old_path + ' ' + new_path)
+#for img in cur_imgs:
+#    no = int(img.split('_')[1].split('.')[0])
+#    old_path = path_to_imgs + 'radar_' + str(no) + '.png'
+#    new_path = path_to_imgs + 'radar_' + str(no + 1) + '.png'
+#    print old_path
+#    print new_path
+#    os.system('/usr/bin/mv ' + old_path + ' ' + new_path)
 
 today = dt.datetime.utcnow() 
 today = today.replace(minute=today.minute - today.minute % 15)
-#end = today - dt.timedelta(days=1)
+end = today - dt.timedelta(days=1)
 #delta = dt.timedelta(minutes=15)
 
-
+## GET RAP DATA
+today_rap = today.replace(minute=0) - dt.timedelta(hours=1)
 # Make all of today's graphics
+rap_url = 'http://atm.ucar.edu//thredds/catalog/grib/NCEP/RAP/CONUS_13km/RR_CONUS_13km_{}.grib2/catalog.xml'.format(today_rap.strftime('%Y%m%d_%H%M'))
+rap_cat = TDSCatalog(rap_url)
+key = rap_cat.datasets.keys()[0]
+latestDs = rap_cat.datasets[key]
 
+dataset = open_url(latestDs.accessUrls['OPENDAP'])
+
+stride = 7
+def getData(dataset, var_name, index, stride=7):
+    data = dataset[var_name][1,index,::stride,::stride]
+    grid = Dataset('/data/soundings/blumberg/programs/wx_maps/utils/13km_latlon.nc')
+    grid_lat = grid.variables['lat'][::stride,::stride].T
+    grid_lon = grid.variables['lon'][::stride,::stride].T
+    elevation = grid.variables['Geopotential_height_surface'][::stride,::stride].T
+    return data[var_name][:].squeeze(), grid_lat, grid_lon, elevation
+
+CAPE, cape_grid_lat, cape_grid_lon, cape_grid_elev = getData(dataset, 'Convective_available_potential_energy_pressure_difference_layer',0, stride=1)
+CAPE = scipy.ndimage.gaussian_filter(CAPE.T, 2)
+sfc_u,grid_lat, grid_lon, grid_elev = getData(dataset , 'u-component_of_wind_height_above_ground', 0)
+sfc_v = getData(dataset , 'v-component_of_wind_height_above_ground', 0)[0]
+
+# Compute the 0-6 km SHEAR
+u_6km = np.empty(sfc_u.shape)
+v_6km = np.empty(sfc_u.shape)
+all_levels = np.arange(len(dataset['isobaric'][:]))
+height_msl = getData(dataset, 'Geopotential_height_isobaric', all_levels)[0]
+v_comp = getData(dataset, 'v-component_of_wind_isobaric', all_levels)[0]
+u_comp = getData(dataset, 'u-component_of_wind_isobaric', all_levels)[0]
+height_agl = height_msl - grid_elev
+for idx in np.ndenumerate(u_6km):
+    v = v_comp[:,idx[0][0], idx[0][1]]
+    u = u_comp[:,idx[0][0], idx[0][1]]
+    h = height_agl[:,idx[0][0], idx[0][1]]
+    v_6km[idx[0]] = np.interp(6000, h[::-1], v[::-1])
+    u_6km[idx[0]] = np.interp(6000, h[::-1], u[::-1])
+u_shear = 1.94384 * (u_6km - sfc_u)
+v_shear = 1.94384 * (v_6km - sfc_v)
+mag = np.sqrt(np.power(u_shear,2) + np.power(v_shear,2))
+u_shear = np.ma.masked_where(mag < 30, u_shear)
+v_shear = np.ma.masked_where(mag < 30, v_shear)
+
+print "SHEAR:",u_shear.shape, v_shear.shape
+print "CAPE:", CAPE.shape
+print "GRID:", grid_lat.shape, grid_lon.shape
+
+## GET NEXRAD MOSAIC DATA
 url = "http://atm.ucar.edu/thredds/catalog/nexrad/composite/gini/n0r/1km/{}/catalog.xml".format(today.strftime("%Y%m%d"))
 cat = TDSCatalog(url)
 names = cat.datasets.keys()
@@ -137,12 +184,14 @@ data = dataset["Reflectivity"][0,0::ystride,0::xstride]
 x = x[0::xstride]
 y = y[0::ystride]
 data = np.squeeze(data)
-data = np.ma.masked_where(data == -30, data)
+data = np.ma.masked_where(data < 10, data)
 
+## PLOT ALL THE DATA
 
 time = dataset["time"][:][0] / 1000.
 dt_obj = dt.datetime.fromtimestamp(time, pytz.utc)
 title = "1 km NEXRAD Mosaic for " + dt.datetime.strftime(dt_obj , '%Y/%m/%d %H:%M UTC')
+title += '\n' + today_rap.strftime('%H UTC 13km RAP Analysis: 0-6 km BWD and MUCAPE')
 
 fig = plt.figure(figsize=(27,30))
 
@@ -161,7 +210,7 @@ y = (m.llcrnry - y.min()) + y
 cmap = radar_colormap()
 cmap.set_bad('k')
 norm = mpl.colors.Normalize(vmin=-35, vmax=80)
-ax.text(0.5, .95, title, transform=plt.gca().transAxes,fontsize=16, horizontalalignment='center', bbox=dict(facecolor='white', alpha=0.9, boxstyle='round'))                                                     
+ax.text(0.5, .97, title, transform=plt.gca().transAxes,fontsize=16, horizontalalignment='center', bbox=dict(facecolor='white', alpha=0.9, boxstyle='round'))                                                     
 #cax = m.pcolormesh(x, y, data, cmap=cmap, norm=norm)
 cax = m.imshow(data, extent = (x.min(), x.max(), y.min(), y.max()), cmap=cmap, norm=norm, origin="upper")
 m.drawcoastlines(color='#FFFFFF')
@@ -169,8 +218,24 @@ m.drawstates(color='#FFFFFF')
 m.drawcountries(color='#FFFFFF')
 m.drawcounties(color='#FFFFFF', linewidth=0.09)
 cbar = m.colorbar(cax)
+
+x_grid, y_grid = m(cape_grid_lon, cape_grid_lat)
+c = m.contour(x_grid, y_grid, CAPE, np.arange(500,6500,500), cmap='spring_r')
+plt.clabel(c, fmt='%4.0f')
+stride = 10
+#m.barbs(x_grid[::stride, ::stride], y_grid[::stride, ::stride], u_shear[::stride,::stride], v_shear[::stride,::stride], mag[::stride,::stride], cmap='RdPu') 
+m.barbs(grid_lon, grid_lat, u_shear.T, v_shear.T, mag.T, clim=[30,70], latlon=True, cmap='RdPu') 
+
 plt.tight_layout()
-plt.savefig(path_to_imgs + 'radar_0.png', bbox_inches='tight')
+# Make the newest graphic.
+out_filename = path_to_imgs + 'nexrad_rap_composite_' + today.strftime("%Y%m%d_%H%M.png")
+plt.savefig(out_filename, bbox_inches='tight')
 
+# Delete the oldest graphic.
+old_filename = path_to_imgs + 'nexrad_rap_composite_' + end.strftime("%Y%m%d_%H%M.png")
+os.system('/usr/bin/rm ' + old_filename)
 
+print "Making looper"
+path_to_looper = '/data/soundings/blumberg/programs/wx_maps/looper/make_looper.py'
+os.system('/data/soundings/anaconda/bin/python ' + path_to_looper + ' ' + path_to_imgs + ' nexrad_rap')
 

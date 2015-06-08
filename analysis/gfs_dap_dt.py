@@ -6,6 +6,7 @@ import datetime
 import numpy as np
 import numpy.ma as ma
 import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap, addcyclic
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -13,19 +14,21 @@ from pydap.client import open_url
 
 
 # CONSTANT & VARIABLES THAT CAN BE SET
+prefix_path = os.path.dirname(os.path.abspath(__file__)) + '/'
 MS2KTS = 1.94384449
 MISSING = 9.999E20
 CLON = 255.
 WINDBARBS = False
 PVU = "1.5"
-dt = datetime.utcnow()
+dt = datetime.datetime.utcnow()
 dt = dt.replace(hour=0)
-BDATE = datetime.strftime(dt - timedelta(seconds=24*60*60*12), '%Y%m%d%H')
-EDATE = datetime.strftime(dt - timedelta(seconds=60*60*12), '%Y%m%d%H')
-IMGPATH = r'./imgs'
-IMGPATH2 = r'./imgs/winds'
-NPZPATH = r'./npz'
-LONLATS = r'gfsHD.lonlats.npz'
+BDATE = datetime.datetime.strftime(dt - datetime.timedelta(seconds=24*60*60*12), '%Y%m%d%H')
+EDATE = datetime.datetime.strftime(dt - datetime.timedelta(seconds=60*60*12), '%Y%m%d%H')
+OUTPATH = '/data/soundings/http/blumberg/dt_hemis/'
+IMGPATH = OUTPATH + 'imgs'
+IMGPATH2 = OUTPATH + 'imgs/winds'
+NPZPATH = prefix_path + 'npz'
+LONLATS = prefix_path + 'gfsHD.lonlats.npz'
 
 
 def get_cmap():
